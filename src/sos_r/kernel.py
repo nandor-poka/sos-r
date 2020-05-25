@@ -374,7 +374,7 @@ class sos_R:
                 False,
                 on_error=f'Failed to get variable {name} to R')
 
-    def put_vars(self, items, to_kernel=None):
+    def put_vars(self, items, to_kernel=None, as_type=None):
         # first let us get all variables with names starting with sos
         response = self.sos_kernel.get_response(
             'cat(..py.repr(ls()))', ('stream',), name=('stdout',))[0][1]
@@ -391,12 +391,11 @@ class sos_R:
 
         if not items:
             return {}
-
         py_repr = f'cat(..py.repr(list({",".join("{0}={0}".format(x) for x in items)})))'
         response = self.sos_kernel.get_response(
             py_repr, ('stream',), name=('stdout',))[0][1]
         expr = response['text']
-
+        
         if to_kernel in ('Python2', 'Python3'):
             # directly to python3
             return '{}\n{}\n{}\nglobals().update({})'.format(

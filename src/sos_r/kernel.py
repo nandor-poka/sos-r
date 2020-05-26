@@ -41,8 +41,6 @@ def make_name(name):
 #  by the R kernel.
 #
 #
-
-
 def _R_repr(obj, processed=None):
     if isinstance(obj, bool):
         return 'TRUE' if obj else 'FALSE'
@@ -165,7 +163,11 @@ def _R_repr(obj, processed=None):
 # matrix    n > 0    array
 # data.frame    n > 0    DataFrame
 
+def convertRtoJSON(self, varName): 
+    return self.sos_kernel.get_response(f'toJSON({varName})', ('display_data',))[0][1]['data']['text/plain'] 
+
 R_init_statements = r'''
+library("jsonlite")
 ..py.repr.logical.1 <- function(obj) {
     if(obj)
         'True'
@@ -375,47 +377,67 @@ class sos_R:
                 on_error=f'Failed to get variable {name} to R')
 
     def put_vars(self, items, to_kernel=None, as_type=None):
-        # first let us get all variables with names starting with sos
-        response = self.sos_kernel.get_response(
-            'cat(..py.repr(ls()))', ('stream',), name=('stdout',))[0][1]
-        all_vars = eval(response['text'])
-        all_vars = [all_vars] if isinstance(all_vars, str) else all_vars
-
-        items += [x for x in all_vars if x.startswith('sos')]
-
+        if not items:
+            return {}
         for item in items:
             if '.' in item:
                 self.sos_kernel.warn(
                     f'Variable {item} is put to SoS as {item.replace(".", "_")}'
                 )
-
-        if not items:
-            return {}
+                    
         py_repr = f'cat(..py.repr(list({",".join("{0}={0}".format(x) for x in items)})))'
         response = self.sos_kernel.get_response(
             py_repr, ('stream',), name=('stdout',))[0][1]
         expr = response['text']
-        
         if to_kernel in ('Python2', 'Python3'):
             # directly to python3
+            if as_type.lower() == 'json':
+                pythonCmd = ''
+                try:
+                    for varName in items:
+                        varName = varName.rstrip(',')
+                        pythonCmd += f'{varName} = json.loads(\'{convertRtoJSON(self, varName )}\')\n'
+                except Exception as e:
+                    self.sos_kernel.warn(f'Exception occurred when transferring `{varName}` from R to {to_kernel}. {e.__str__()}')
+                return pythonCmd
             return '{}\n{}\n{}\nglobals().update({})'.format(
                 'from feather import read_dataframe\n'
                 if 'read_dataframe' in expr else '',
                 'import numpy' if 'numpy' in expr else '',
                 'import pandas' if 'pandas' in expr else '', expr)
+        if to_kernel in ('Java', 'java', 'Java'):
+            javaCmd = ''
+            if as_type == 'json':
+                try:
+                    for varName in items:
+                        javaCmd += f'JsonObject {varName} = parseJsonString('+'"{'+f'\\"{varName}\\":{convertRtoJSON(self, varName)}'+'}");'
+                except Exception as e:
+                    self.sos_kernel.warn(f'Exception occurred when transferring `{varName}` from R to {to_kernel}. {e.__str__()}')
+                return javaCmd
         # to sos or any other kernel
-        else:
-            # irkernel (since the new version) does not produce execute_result, only
-            # display_data
+        # irkernel (since the new version) does not produce execute_result, only
+         # display_data
+        # temp solution may not be kept in final as json should be converted diretly in target language
+        if as_type and as_type.lower() == 'json':
+            dictToSos = dict()
             try:
-                if 'read_dataframe' in expr:
-                    # imported to be used by eval
-                    from feather import read_dataframe
-                    # suppress flakes warning
-                    assert read_dataframe
-                # evaluate as raw string to correctly handle \\ etc
-                return eval(expr)
+                for varName in items:
+                    dictToSos[varName] = eval(convertRtoJSON(self, varName ))
+                    self.sos_kernel.warn(dictToSos)
             except Exception as e:
+                    self.sos_kernel.warn(f'Exception occurred when transferring `{varName}` from R to SoS Kernel. {e.__str__()}')
+                    return dictToSos
+
+        
+        try:
+            if 'read_dataframe' in expr:
+            # imported to be used by eval
+                from feather import read_dataframe
+                # suppress flakes warning
+                assert read_dataframe
+            # evaluate as raw string to correctly handle \\ etc
+            return eval(expr)
+        except Exception as e:
                 self.sos_kernel.warn(f'Failed to evaluate {expr!r}: {e}')
                 return None
 

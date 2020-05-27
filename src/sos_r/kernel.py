@@ -164,8 +164,11 @@ def _R_repr(obj, processed=None):
 # data.frame    n > 0    DataFrame
 
 def convertRtoJSON(self, varName): 
-    return self.sos_kernel.get_response(f'toJSON({varName})', ('display_data',))[0][1]['data']['text/plain'] 
-
+    result = self.sos_kernel.get_response(f'toJSON({varName})', ('display_data',)) 
+    if result != [] :
+        return result[0][1]['data']['text/plain'] 
+    self.sos_kernel.warn(f'{varName} cannot be converted to JSON, forcing conversion by unclassing. Make sure you verify the result of the conversion!')
+    return self.sos_kernel.get_response(f'toJSON({varName}, force=TRUE)', ('display_data',))[0][1]['data']['text/plain'] 
 R_init_statements = r'''
 library("jsonlite")
 ..py.repr.logical.1 <- function(obj) {

@@ -394,7 +394,7 @@ class sos_R:
         expr = response['text']
         if to_kernel in ('Python2', 'Python3'):
             # directly to python3
-            if as_type.lower() == 'json':
+            if as_type != None and as_type.lower() == 'json':
                 pythonCmd = ''
                 try:
                     for varName in items:
